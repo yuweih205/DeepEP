@@ -36,6 +36,10 @@ class EventOverlap:
         # Useful for deterministic dispatch, which requires a sort (on the current stream) after `self.current_stream_wait()` is invoked
         self.hook_after_wait: Optional[Callable] = None
 
+        # The communication event precedes any work enqueued by the hook.
+        # Keep a separate completion event for subsequent waits on other streams.
+        self._epilogue_event: Optional[EventHandle] = None
+
     def current_stream_wait(self, release_handle: bool = False) -> Any:
         """
         The current stream `torch.cuda.current_stream()` waits for the event to be finished.
@@ -45,11 +49,14 @@ class EventOverlap:
         """
         assert self.event is not None
         self.event.current_stream_wait()
+        if self._epilogue_event is not None:
+            self._epilogue_event.current_stream_wait()
 
         # Call epilogue hook
         result = None
         if self.hook_after_wait is not None:
             result = self.hook_after_wait()
+            self._epilogue_event = EventHandle()
             self.hook_after_wait = None
 
         # In `self.event`, we also have some V2 APIs storing tensors to record in it,
@@ -57,6 +64,7 @@ class EventOverlap:
         # However, you better do it by yourself (to be compatible with multi-stream waits)
         if release_handle:
             self.event = None
+            self._epilogue_event = None
         return result
 
     def wait(self) -> Any:
@@ -67,10 +75,10 @@ class EventOverlap:
         """
         Register a hook, which will be invoked after `self.current_stream_wait()`
         """
-        assert self.hook_after_wait is None, "A hook is already registered on this `EventOverlap`"
+        assert self.hook_after_wait is None, 'A hook is already registered on this `EventOverlap`'
         self.hook_after_wait = hook_after_wait
 
-    def __call__(self, release_handle: bool = False) -> "EventOverlap":
+    def __call__(self, release_handle: bool = False) -> 'EventOverlap':
         """
         Configures the 'release_handle' behavior for the upcoming context manager usage.
         Usage:
