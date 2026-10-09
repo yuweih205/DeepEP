@@ -36,8 +36,7 @@ class EventOverlap:
         # Useful for deterministic dispatch, which requires a sort (on the current stream) after `self.current_stream_wait()` is invoked
         self.hook_after_wait: Optional[Callable] = None
 
-        # The communication event precedes any work enqueued by the hook.
-        # Keep a separate completion event for subsequent waits on other streams.
+        # Later waits must include GPU work enqueued by the hook.
         self._epilogue_event: Optional[EventHandle] = None
 
     def current_stream_wait(self, release_handle: bool = False) -> Any:
